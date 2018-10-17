@@ -19,18 +19,42 @@
    In this example rxValue is the data received (only accessible inside that function).
    And txValue is the data to be sent, in this example just a byte incremented every second. 
 */
+#include <Arduino.h>
+#include <U8x8lib.h>
+
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+
+#ifdef U8X8_HAVE_HW_SPI
+#include <SPI.h>
+#endif
+#ifdef U8X8_HAVE_HW_I2C
+#include <Wire.h>
+#endif
+
+// Set up the rgb led names
+uint8_t ledR = 12;
+uint8_t ledG = 13; // internally pulled up
+uint8_t ledB = 14; 
+
+uint8_t ledArray[3] = {1, 2, 3}; // three led channels
+
+const boolean invert = false; // set true if common anode, false if common cathode
+
+
+// U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 2, /* data=*/ 3, /* reset=*/ U8X8_PIN_NONE);
+U8X8_SSD1306_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);   
 
 BLECharacteristic *pCharacteristic;
 bool deviceConnected = false;
 float txValue = 0;
 const int readPin = 32; // Use GPIO number. See ESP32 board pinouts
 const int LED = 2; // Could be different depending on the dev board. I used the DOIT ESP32 dev board.
-
 unsigned char rgbR, rgbG, rgbB;
+unsigned rgbUpdated = 0;
+char print_str[17];
 
 //std::string rxValue; // Could also make this a global var to access it in loop()
 
@@ -79,12 +103,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
            rgbR = rxValue[2];
            rgbG = rxValue[3];
            rgbB = rxValue[4];
-           Serial.print("RGB: ");
-           Serial.print(rgbR, HEX);
-           Serial.print(", ");
-           Serial.print(rgbG, HEX);
-           Serial.print(", ");
-           Serial.print(rgbB, HEX);
+           rgbUpdated = 1;
         }
         Serial.println();
         Serial.println("*********");
@@ -96,6 +115,32 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(LED, OUTPUT);
+
+  u8x8.begin();
+  // u8x8.setFlipMode(1);
+  u8x8.setFont(u8x8_font_pressstart2p_f);    
+  u8x8.clear();
+  u8x8.print("BLE ColorPicker");
+
+  ledcAttachPin(ledR, 1); // assign RGB led pins to channels
+  ledcAttachPin(ledG, 2);
+  ledcAttachPin(ledB, 3);
+  
+  // Initialize channels 
+  // channels 0-15, resolution 1-16 bits, freq limits depend on resolution
+  // ledcSetup(uint8_t channel, uint32_t freq, uint8_t resolution_bits);
+  ledcSetup(1, 12000, 8); // 12 kHz PWM, 8-bit resolution
+  ledcSetup(2, 12000, 8);
+  ledcSetup(3, 12000, 8);
+
+  for(uint8_t i=0; i < 3; i++) {
+  // ledcWrite(channel, dutycycle)
+  // For 8-bit resolution duty cycle is 0 - 255
+      ledcWrite(ledArray[i], 255);  // test high output of all leds in sequence
+      delay(500);
+      ledcWrite(ledArray[i], 0);
+  }
+  
 
   // Create the BLE Device
   BLEDevice::init("ESP32 UART Test"); // Give it a name
@@ -160,6 +205,16 @@ void loop() {
 //      Serial.println("Turning OFF!");
 //      digitalWrite(LED, LOW);
 //    }
+      if(rgbUpdated) {
+           u8x8.setCursor(0,2);
+           sprintf(print_str, "RGB: #%02X%02X%02X", rgbR, rgbG, rgbB);
+           u8x8.print(print_str);
+           ledcWrite(1, rgbR);
+           ledcWrite(2, rgbG);
+           ledcWrite(3, rgbB);
+                    
+           rgbUpdated = 0;
+      }
   }
   delay(1000);
 }
